@@ -33,6 +33,13 @@ struct ContentView: View {
                 vm.successMessage = nil
             }
         )) {
+            if let preview = vm.lastServerResponsePreview, !preview.isEmpty {
+                Button("Скопировать ответ сервера") {
+                    UIPasteboard.general.string = preview
+                    let gen = UINotificationFeedbackGenerator()
+                    gen.notificationOccurred(.success)
+                }
+            }
             Button("OK", role: .cancel) {}
         } message: {
             if let err = vm.errorMessage {

@@ -14,6 +14,7 @@ public final class AppViewModel: ObservableObject {
     @Published public var isLoading: Bool = false
     @Published public var errorMessage: String?
     @Published public var successMessage: String?
+    @Published public var lastServerResponsePreview: String?
 
     public let vpnManager = VPNManager.shared
     private let storage = StorageManager.shared
@@ -91,7 +92,7 @@ public final class AppViewModel: ObservableObject {
                 lastUpdated: Date(),
                 serverCount: fetchedServers.count,
                 hwidUsed: usedHWID,
-                userAgentUsed: "Happ/3.13.0"
+                userAgentUsed: DeviceHelper.userAgent
             )
 
             subscriptions.append(newSub)
@@ -105,7 +106,8 @@ public final class AppViewModel: ObservableObject {
             saveData()
             successMessage = "Успешно добавлено \(fetchedServers.count) узлов!"
         } catch {
-            errorMessage = error.localizedDescription
+            self.lastServerResponsePreview = subscriptionService.lastRawResponse
+            self.errorMessage = error.localizedDescription
         }
 
         isLoading = false
@@ -127,6 +129,7 @@ public final class AppViewModel: ObservableObject {
                 subscriptions[index].lastUpdated = Date()
                 subscriptions[index].serverCount = fetchedServers.count
                 subscriptions[index].hwidUsed = usedHWID
+                subscriptions[index].userAgentUsed = DeviceHelper.userAgent
             }
 
             // Restore active server if still exists or fallback to first
@@ -140,7 +143,8 @@ public final class AppViewModel: ObservableObject {
             saveData()
             successMessage = "Подписка «\(subscription.name)» обновлена: \(fetchedServers.count) узлов"
         } catch {
-            errorMessage = error.localizedDescription
+            self.lastServerResponsePreview = subscriptionService.lastRawResponse
+            self.errorMessage = error.localizedDescription
         }
 
         isLoading = false

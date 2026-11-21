@@ -4,7 +4,7 @@ public enum SubscriptionError: LocalizedError {
     case invalidURL
     case networkError(String)
     case invalidResponse(Int)
-    case parsingFailed(String)
+    case parsingFailed(String, rawPreview: String?)
 
     public var errorDescription: String? {
         switch self {
@@ -14,14 +14,19 @@ public enum SubscriptionError: LocalizedError {
             return "Сетевая ошибка при загрузке: \(msg)"
         case .invalidResponse(let code):
             return "Сервер вернул HTTP \(code). Проверьте статус подписки или привязку HWID."
-        case .parsingFailed(let msg):
-            return "Ошибка разбора подписки: \(msg)"
+        case .parsingFailed(let msg, let rawPreview):
+            if let preview = rawPreview, !preview.isEmpty {
+                return "\(msg)\n\nОтвет сервера:\n\(preview.prefix(350))"
+            }
+            return msg
         }
     }
 }
 
 public final class HappSubscriptionService {
     public static let shared = HappSubscriptionService()
+    public private(set) var lastRawResponse: String?
+
     private init() {}
 
     /// Normalizes URL, stripping custom `happ://` scheme wrappers if present.
@@ -85,44 +90,78 @@ public final class HappSubscriptionService {
             throw SubscriptionError.invalidResponse(httpResponse.statusCode)
         }
 
+        // Cache raw response string for diagnostics
+        let rawText = decodeString(from: data) ?? "<\(data.count) bytes binary data>"
+        self.lastRawResponse = rawText
+
         let servers = parsePayload(data: data, subscriptionId: subscriptionId)
         if servers.isEmpty {
-            throw SubscriptionError.parsingFailed("Не удалось обнаружить VLESS или Hysteria узлы в ответе подписки.")
+            let preview = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw SubscriptionError.parsingFailed(
+                "Узлы не найдены (получено \(data.count) байт).",
+                rawPreview: preview.isEmpty ? nil : preview
+            )
         }
 
         return (servers, hwid)
     }
 
-    // MARK: - Universal Payload Parser (JSON + PlainText + Base64)
+    // MARK: - String Decoding Helper (UTF-8, Latin1, ASCII)
+    private func decodeString(from data: Data) -> String? {
+        if let s = String(data: data, encoding: .utf8) { return s }
+        if let s = String(data: data, encoding: .ascii) { return s }
+        if let s = String(data: data, encoding: .isoLatin1) { return s }
+        if let s = String(data: data, encoding: .windowsCP1251) { return s }
+        return nil
+    }
+
+    // MARK: - Safe Base64 Helper (Supports standard & URL-safe with auto-padding)
+    public func safeBase64Decode(_ input: String) -> Data? {
+        var base64 = input
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: " ", with: "")
+
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64.append(String(repeating: "=", count: 4 - remainder))
+        }
+
+        return Data(base64Encoded: base64, options: [.ignoreUnknownCharacters])
+    }
+
+    // MARK: - Universal Payload Parser
     public func parsePayload(data: Data, subscriptionId: UUID) -> [ServerConfig] {
-        // 1. Try direct JSON parsing
-        if let directJSON = try? JSONSerialization.jsonObject(with: data, options: []),
-           let servers = parseJSON(directJSON, subscriptionId: subscriptionId), !servers.isEmpty {
+        // 1. Direct JSON parse
+        if let json = try? JSONSerialization.jsonObject(with: data, options: []),
+           let servers = extractServersFromJSON(json, subscriptionId: subscriptionId), !servers.isEmpty {
             return servers
         }
 
-        // 2. Decode string content
-        guard let rawString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+        // 2. String conversion
+        guard let rawString = decodeString(from: data)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
             return []
         }
 
-        // Try parsing string as JSON
+        // 3. String as JSON
         if let stringData = rawString.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: stringData, options: []),
-           let servers = parseJSON(json, subscriptionId: subscriptionId), !servers.isEmpty {
+           let servers = extractServersFromJSON(json, subscriptionId: subscriptionId), !servers.isEmpty {
             return servers
         }
 
-        // 3. Try Base64 decoding
-        if let decodedData = Data(base64Encoded: rawString, options: [.ignoreUnknownCharacters]) {
+        // 4. Try Base64 Decoding
+        if let decodedData = safeBase64Decode(rawString) {
             // Check if base64 contains JSON
-            if let base64JSON = try? JSONSerialization.jsonObject(with: decodedData, options: []),
-               let servers = parseJSON(base64JSON, subscriptionId: subscriptionId), !servers.isEmpty {
+            if let json = try? JSONSerialization.jsonObject(with: decodedData, options: []),
+               let servers = extractServersFromJSON(json, subscriptionId: subscriptionId), !servers.isEmpty {
                 return servers
             }
-
             // Check if base64 contains URI lines
-            if let decodedString = String(data: decodedData, encoding: .utf8) {
+            if let decodedString = decodeString(from: decodedData) {
                 let linesServers = parseURILines(decodedString, subscriptionId: subscriptionId)
                 if !linesServers.isEmpty {
                     return linesServers
@@ -130,128 +169,169 @@ public final class HappSubscriptionService {
             }
         }
 
-        // 4. Fallback: Parse plain URI lines
+        // 5. Plain URI lines
         return parseURILines(rawString, subscriptionId: subscriptionId)
     }
 
-    // MARK: - JSON Parser (Happ / sing-box / Xray / 3x-ui schemas)
-    private func parseJSON(_ json: Any, subscriptionId: UUID) -> [ServerConfig]? {
-        var results: [ServerConfig] = []
+    // MARK: - Recursive JSON Server Extractor
+    public func extractServersFromJSON(_ json: Any, subscriptionId: UUID) -> [ServerConfig]? {
+        var collected: [ServerConfig] = []
 
-        // If root is Dict containing "outbounds" or "servers"
-        if let dict = json as? [String: Any] {
-            if let outbounds = dict["outbounds"] as? [[String: Any]] {
-                for item in outbounds {
-                    if let config = parseOutboundDict(item, subscriptionId: subscriptionId) {
-                        results.append(config)
+        func traverse(_ node: Any) {
+            if let dict = node as? [String: Any] {
+                // Check if this dict itself is a server configuration
+                if let config = parseSingleServerDict(dict, subscriptionId: subscriptionId) {
+                    collected.append(config)
+                    return
+                }
+
+                // Check known collection keys
+                let candidateKeys = ["outbounds", "proxies", "servers", "nodes", "configs", "configurations", "items", "data", "links", "list"]
+                for key in candidateKeys {
+                    if let child = dict[key] {
+                        traverse(child)
                     }
                 }
-            } else if let servers = dict["servers"] as? [[String: Any]] {
-                for item in servers {
-                    if let config = parseOutboundDict(item, subscriptionId: subscriptionId) {
-                        results.append(config)
+
+                // If not found in known keys, traverse all child values
+                if collected.isEmpty {
+                    for (_, value) in dict {
+                        if value is [String: Any] || value is [Any] {
+                            traverse(value)
+                        }
                     }
                 }
-            }
-        } else if let array = json as? [[String: Any]] {
-            for item in array {
-                if let config = parseOutboundDict(item, subscriptionId: subscriptionId) {
-                    results.append(config)
+            } else if let array = node as? [Any] {
+                for element in array {
+                    if let stringElem = element as? String {
+                        if let config = parseAnyLink(stringElem, subscriptionId: subscriptionId) {
+                            collected.append(config)
+                        }
+                    } else if let dictElem = element as? [String: Any] {
+                        traverse(dictElem)
+                    }
                 }
             }
         }
 
-        return results.isEmpty ? nil : results
+        traverse(json)
+        return collected.isEmpty ? nil : collected
     }
 
-    private func parseOutboundDict(_ dict: [String: Any], subscriptionId: UUID) -> ServerConfig? {
-        let tag = (dict["tag"] as? String) ?? (dict["name"] as? String) ?? "Proxy"
+    // MARK: - Single Dict Parser (sing-box, Xray, Clash Meta, Remnawave)
+    private func parseSingleServerDict(_ dict: [String: Any], subscriptionId: UUID) -> ServerConfig? {
+        let tag = (dict["tag"] as? String) ??
+                  (dict["name"] as? String) ??
+                  (dict["ps"] as? String) ??
+                  (dict["remark"] as? String) ?? "Proxy"
+
         let rawType = ((dict["type"] as? String) ?? (dict["protocol"] as? String) ?? "").lowercased()
 
-        // 1. VLESS Outbound (Xray or sing-box schema)
-        if rawType == "vless" {
-            // Check Xray style: settings.vnext[0]
-            if let settings = dict["settings"] as? [String: Any],
-               let vnext = (settings["vnext"] as? [[String: Any]])?.first {
-                let address = (vnext["address"] as? String) ?? ""
-                let port = (vnext["port"] as? Int) ?? 443
-                let users = vnext["users"] as? [[String: Any]]
-                let uuid = (users?.first?["id"] as? String) ?? ""
-                let flow = users?.first?["flow"] as? String
+        // 1. Check Xray vnext format (VLESS / VMess)
+        if let settings = dict["settings"] as? [String: Any],
+           let vnext = (settings["vnext"] as? [[String: Any]])?.first {
+            let address = parseString(vnext["address"]) ?? parseString(dict["server"]) ?? ""
+            let port = parsePort(vnext["port"]) ?? parsePort(dict["port"]) ?? 443
+            let users = vnext["users"] as? [[String: Any]]
+            let uuid = parseString(users?.first?["id"]) ?? parseString(users?.first?["uuid"]) ?? ""
+            let flow = parseString(users?.first?["flow"])
 
-                var security = "reality"
-                var sni = address
-                var pbk: String? = nil
-                var sid: String? = nil
-                var spx: String? = nil
-                var network = "tcp"
-                var path: String? = nil
-                var host: String? = nil
+            var security = "reality"
+            var sni = address
+            var pbk: String? = nil
+            var sid: String? = nil
+            var spx: String? = nil
+            var network = "tcp"
+            var path: String? = nil
+            var host: String? = nil
 
-                if let stream = dict["streamSettings"] as? [String: Any] {
-                    network = (stream["network"] as? String) ?? "tcp"
-                    security = (stream["security"] as? String) ?? "reality"
+            if let stream = dict["streamSettings"] as? [String: Any] {
+                network = parseString(stream["network"]) ?? "tcp"
+                security = parseString(stream["security"]) ?? "reality"
 
-                    if let reality = stream["realitySettings"] as? [String: Any] {
-                        sni = (reality["serverName"] as? String) ?? address
-                        pbk = reality["publicKey"] as? String
-                        sid = reality["shortId"] as? String
-                        spx = reality["spiderX"] as? String
-                    } else if let tls = stream["tlsSettings"] as? [String: Any] {
-                        sni = (tls["serverName"] as? String) ?? address
-                    }
-
-                    if let ws = stream["wsSettings"] as? [String: Any] {
-                        path = ws["path"] as? String
-                        if let headers = ws["headers"] as? [String: String] {
-                            host = headers["Host"]
-                        }
-                    }
+                if let reality = stream["realitySettings"] as? [String: Any] {
+                    sni = parseString(reality["serverName"]) ?? address
+                    pbk = parseString(reality["publicKey"])
+                    sid = parseString(reality["shortId"])
+                    spx = parseString(reality["spiderX"])
+                } else if let tls = stream["tlsSettings"] as? [String: Any] {
+                    sni = parseString(tls["serverName"]) ?? address
                 }
 
-                if !address.isEmpty && !uuid.isEmpty {
-                    return ServerConfig(
-                        name: tag,
-                        address: address,
-                        port: port,
-                        protocolType: "vless",
-                        uuid: uuid,
-                        flow: flow,
-                        security: security,
-                        sni: sni,
-                        publicKey: pbk,
-                        shortId: sid,
-                        spiderX: spx,
-                        network: network,
-                        path: path,
-                        host: host,
-                        subscriptionId: subscriptionId
-                    )
+                if let ws = stream["wsSettings"] as? [String: Any] {
+                    path = parseString(ws["path"])
+                    if let headers = ws["headers"] as? [String: String] {
+                        host = headers["Host"]
+                    }
                 }
             }
 
-            // Check sing-box style: server, server_port, uuid
-            if let address = (dict["server"] as? String) ?? (dict["address"] as? String),
-               let port = (dict["server_port"] as? Int) ?? (dict["port"] as? Int),
-               let uuid = dict["uuid"] as? String {
-                let flow = dict["flow"] as? String
+            if !address.isEmpty && !uuid.isEmpty {
+                return ServerConfig(
+                    name: tag,
+                    address: address,
+                    port: port,
+                    protocolType: "vless",
+                    uuid: uuid,
+                    flow: flow,
+                    security: security,
+                    sni: sni,
+                    publicKey: pbk,
+                    shortId: sid,
+                    spiderX: spx,
+                    network: network,
+                    path: path,
+                    host: host,
+                    subscriptionId: subscriptionId
+                )
+            }
+        }
+
+        // 2. Direct VLESS node (sing-box, Clash Meta, Remnawave)
+        let isVLESS = (rawType == "vless") || (rawType.isEmpty && dict["uuid"] != nil)
+        if isVLESS {
+            let address = parseString(dict["server"]) ??
+                          parseString(dict["address"]) ??
+                          parseString(dict["host"]) ??
+                          parseString(dict["ip"]) ?? ""
+
+            let port = parsePort(dict["server_port"]) ??
+                       parsePort(dict["port"]) ?? 443
+
+            let uuid = parseString(dict["uuid"]) ??
+                       parseString(dict["id"]) ??
+                       parseString(dict["password"]) ?? ""
+
+            if !address.isEmpty && !uuid.isEmpty {
+                let flow = parseString(dict["flow"])
                 var security = "none"
                 var sni = address
                 var pbk: String? = nil
                 var sid: String? = nil
                 var fp = "chrome"
 
+                // Check sing-box TLS
                 if let tls = dict["tls"] as? [String: Any], (tls["enabled"] as? Bool) ?? true {
                     security = "tls"
-                    sni = (tls["server_name"] as? String) ?? address
+                    sni = parseString(tls["server_name"]) ?? address
                     if let utls = tls["utls"] as? [String: Any] {
-                        fp = (utls["fingerprint"] as? String) ?? "chrome"
+                        fp = parseString(utls["fingerprint"]) ?? "chrome"
                     }
                     if let reality = tls["reality"] as? [String: Any], (reality["enabled"] as? Bool) ?? true {
                         security = "reality"
-                        pbk = reality["public_key"] as? String
-                        sid = reality["short_id"] as? String
+                        pbk = parseString(reality["public_key"])
+                        sid = parseString(reality["short_id"])
                     }
+                }
+
+                // Check Clash Meta reality-opts
+                if let realityOpts = dict["reality-opts"] as? [String: Any] {
+                    security = "reality"
+                    pbk = parseString(realityOpts["public-key"])
+                    sid = parseString(realityOpts["short-id"])
+                }
+                if let sName = parseString(dict["servername"]) ?? parseString(dict["sni"]) {
+                    sni = sName
                 }
 
                 return ServerConfig(
@@ -271,24 +351,31 @@ public final class HappSubscriptionService {
             }
         }
 
-        // 2. Hysteria 2 / Hy2 Outbound
-        if rawType == "hysteria2" || rawType == "hy2" {
-            let address = (dict["server"] as? String) ?? (dict["address"] as? String) ?? ""
-            let port = (dict["server_port"] as? Int) ?? (dict["port"] as? Int) ?? 443
-            let password = (dict["password"] as? String) ?? (dict["auth"] as? String) ?? ""
+        // 3. Hysteria 2 / Hy2 node
+        let isHy2 = (rawType == "hysteria2" || rawType == "hy2")
+        if isHy2 {
+            let address = parseString(dict["server"]) ?? parseString(dict["address"]) ?? parseString(dict["host"]) ?? ""
+            let port = parsePort(dict["server_port"]) ?? parsePort(dict["port"]) ?? 443
+            let password = parseString(dict["password"]) ?? parseString(dict["auth"]) ?? ""
 
             var sni = address
             var insecure = false
             if let tls = dict["tls"] as? [String: Any] {
-                sni = (tls["server_name"] as? String) ?? address
+                sni = parseString(tls["server_name"]) ?? address
                 insecure = (tls["insecure"] as? Bool) ?? false
+            }
+            if let sName = parseString(dict["sni"]) ?? parseString(dict["servername"]) {
+                sni = sName
             }
 
             var obfsType: String? = nil
             var obfsPass: String? = nil
             if let obfs = dict["obfs"] as? [String: Any] {
-                obfsType = obfs["type"] as? String
-                obfsPass = obfs["password"] as? String
+                obfsType = parseString(obfs["type"])
+                obfsPass = parseString(obfs["password"])
+            } else if let obfsStr = parseString(dict["obfs"]) {
+                obfsType = obfsStr
+                obfsPass = parseString(dict["obfs-password"])
             }
 
             if !address.isEmpty && !password.isEmpty {
@@ -310,12 +397,12 @@ public final class HappSubscriptionService {
             }
         }
 
-        // 3. Hysteria 1 Outbound
+        // 4. Hysteria 1 node
         if rawType == "hysteria" {
-            let address = (dict["server"] as? String) ?? (dict["address"] as? String) ?? ""
-            let port = (dict["server_port"] as? Int) ?? (dict["port"] as? Int) ?? 443
-            let auth = (dict["auth_str"] as? String) ?? (dict["auth"] as? String) ?? ""
-            let sni = ((dict["tls"] as? [String: Any])?["server_name"] as? String) ?? address
+            let address = parseString(dict["server"]) ?? parseString(dict["address"]) ?? ""
+            let port = parsePort(dict["server_port"]) ?? parsePort(dict["port"]) ?? 443
+            let auth = parseString(dict["auth_str"]) ?? parseString(dict["auth"]) ?? ""
+            let sni = parseString((dict["tls"] as? [String: Any])?["server_name"]) ?? address
 
             if !address.isEmpty {
                 return ServerConfig(
@@ -336,7 +423,21 @@ public final class HappSubscriptionService {
         return nil
     }
 
-    // MARK: - URI Lines Parser (vless://, hysteria2://, hy2://, hysteria://)
+    // MARK: - Primitive Field Helpers
+    private func parseString(_ val: Any?) -> String? {
+        if let s = val as? String { return s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let n = val as? NSNumber { return n.stringValue }
+        return nil
+    }
+
+    private func parsePort(_ val: Any?) -> Int? {
+        if let i = val as? Int { return i }
+        if let n = val as? NSNumber { return n.intValue }
+        if let s = val as? String, let i = Int(s.trimmingCharacters(in: .whitespacesAndNewlines)) { return i }
+        return nil
+    }
+
+    // MARK: - URI Lines Parser
     public func parseURILines(_ text: String, subscriptionId: UUID) -> [ServerConfig] {
         var results: [ServerConfig] = []
         let lines = text.components(separatedBy: .newlines)
@@ -346,21 +447,32 @@ public final class HappSubscriptionService {
             if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") {
                 continue
             }
-            if trimmed.hasPrefix("vless://") {
-                if let config = parseVLESSLink(trimmed, subscriptionId: subscriptionId) {
-                    results.append(config)
-                }
-            } else if trimmed.hasPrefix("hysteria2://") || trimmed.hasPrefix("hy2://") {
-                if let config = parseHysteria2Link(trimmed, subscriptionId: subscriptionId) {
-                    results.append(config)
-                }
-            } else if trimmed.hasPrefix("hysteria://") {
-                if let config = parseHysteria1Link(trimmed, subscriptionId: subscriptionId) {
-                    results.append(config)
-                }
+            if let config = parseAnyLink(trimmed, subscriptionId: subscriptionId) {
+                results.append(config)
             }
         }
         return results
+    }
+
+    public func parseAnyLink(_ link: String, subscriptionId: UUID) -> ServerConfig? {
+        var target = link.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle happ:// wrapper
+        if target.lowercased().hasPrefix("happ://add/") {
+            let extracted = String(target.dropFirst("happ://add/".count))
+            if let decoded = extracted.removingPercentEncoding {
+                target = decoded
+            }
+        }
+
+        if target.hasPrefix("vless://") {
+            return parseVLESSLink(target, subscriptionId: subscriptionId)
+        } else if target.hasPrefix("hysteria2://") || target.hasPrefix("hy2://") {
+            return parseHysteria2Link(target, subscriptionId: subscriptionId)
+        } else if target.hasPrefix("hysteria://") {
+            return parseHysteria1Link(target, subscriptionId: subscriptionId)
+        }
+        return nil
     }
 
     public func parseVLESSLink(_ link: String, subscriptionId: UUID? = nil) -> ServerConfig? {
