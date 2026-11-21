@@ -1,0 +1,179 @@
+import SwiftUI
+
+struct DashboardView: View {
+    @EnvironmentObject var vm: AppViewModel
+    @State private var pulse = false
+
+    var isConnected: Bool {
+        vm.vpnManager.status == .connected
+    }
+
+    var isConnecting: Bool {
+        vm.vpnManager.status == .connecting
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 28) {
+                // Top Status Badge
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 10, height: 10)
+                        .scaleEffect(isConnecting ? 1.4 : 1.0)
+                        .animation(isConnecting ? Animation.easeInOut(duration: 0.8).repeatForever() : .default, value: isConnecting)
+
+                    Text(vm.vpnManager.status.rawValue)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(20)
+                .padding(.top, 20)
+
+                Spacer()
+
+                // Main Connect Button
+                ZStack {
+                    Circle()
+                        .stroke(statusColor.opacity(0.15), lineWidth: 28)
+                        .frame(width: 190, height: 190)
+
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 150, height: 150)
+                        .shadow(color: statusColor.opacity(0.4), radius: isConnected ? 20 : 8, x: 0, y: 8)
+
+                    VStack(spacing: 6) {
+                        Image(systemName: "power")
+                            .font(.system(size: 44, weight: .bold))
+                            .foregroundColor(.white)
+
+                        Text(isConnected ? "ВКЛ" : "ВЫКЛ")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white.opacity(0.9))
+                    }
+                }
+                .onTapGesture {
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    vm.toggleVPN()
+                }
+
+                Spacer()
+
+                // Active Node Card
+                if let server = vm.activeServer {
+                    NavigationLink(destination: ServerListView()) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "bolt.horizontal.fill")
+                                .font(.title3)
+                                .foregroundColor(.blue)
+                                .frame(width: 36, height: 36)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(10)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(server.name)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                    .foregroundColor(.primary)
+
+                                Text("\(server.address):\(server.port) • \(server.security.uppercased())")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            if let ping = server.pingMs {
+                                Text(ping >= 0 ? "\(ping) ms" : "Timeout")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(ping >= 0 ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+                                    .foregroundColor(ping >= 0 ? .green : .red)
+                                    .cornerRadius(6)
+                            }
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(16)
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(16)
+                    }
+                    .padding(.horizontal)
+                } else {
+                    NavigationLink(destination: SubscriptionView()) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.blue)
+                            Text("Добавьте подписку или узел")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(14)
+                        .padding(.horizontal)
+                    }
+                }
+
+                // Happ HWID Banner
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.shield")
+                        .foregroundColor(.green)
+                    Text("Happ HWID активен:")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(vm.hwid.prefix(8) + "...")
+                        .font(.caption2.monospaced())
+                        .foregroundColor(.primary)
+
+                    Spacer()
+
+                    Button {
+                        UIPasteboard.general.string = vm.hwid
+                        let gen = UINotificationFeedbackGenerator()
+                        gen.notificationOccurred(.success)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color(.tertiarySystemBackground))
+                .cornerRadius(10)
+                .padding(.horizontal)
+                .padding(.bottom, 12)
+            }
+            .navigationTitle("ffpp")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var statusColor: Color {
+        switch vm.vpnManager.status {
+        case .connected:
+            return .green
+        case .connecting:
+            return .orange
+        case .disconnecting:
+            return .gray
+        case .disconnected:
+            return .blue
+        case .invalid:
+            return .red
+        }
+    }
+}
