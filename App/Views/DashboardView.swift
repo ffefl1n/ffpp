@@ -2,14 +2,15 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject var vm: AppViewModel
+    @ObservedObject private var vpnManager = VPNManager.shared
     @State private var pulse = false
 
     var isConnected: Bool {
-        vm.vpnManager.status == .connected
+        vpnManager.status == .connected
     }
 
     var isConnecting: Bool {
-        vm.vpnManager.status == .connecting
+        vpnManager.status == .connecting
     }
 
     var body: some View {
@@ -23,7 +24,7 @@ struct DashboardView: View {
                         .scaleEffect(isConnecting ? 1.4 : 1.0)
                         .animation(isConnecting ? Animation.easeInOut(duration: 0.8).repeatForever() : .default, value: isConnecting)
 
-                    Text(vm.vpnManager.status.rawValue)
+                    Text(vpnManager.status.rawValue)
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.secondary)
@@ -66,22 +67,40 @@ struct DashboardView: View {
 
                 Spacer()
 
-                // Active Node Card
+                // Active Node Card with Geo Location
                 if let server = vm.activeServer {
                     NavigationLink(destination: ServerListView()) {
                         HStack(spacing: 14) {
-                            Image(systemName: serverIcon(server))
-                                .font(.title3)
-                                .foregroundColor(.blue)
-                                .frame(width: 36, height: 36)
-                                .background(Color.blue.opacity(0.1))
-                                .cornerRadius(10)
+                            // Location Flag or Server Icon
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.blue.opacity(0.1))
+                                    .frame(width: 40, height: 40)
+
+                                if let flag = server.flagEmoji, !flag.isEmpty {
+                                    Text(flag)
+                                        .font(.title2)
+                                } else {
+                                    Image(systemName: serverIcon(server))
+                                        .font(.title3)
+                                        .foregroundColor(.blue)
+                                }
+                            }
 
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(server.name)
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                    .foregroundColor(.primary)
+                                HStack(spacing: 6) {
+                                    Text(server.name)
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                        .foregroundColor(.primary)
+
+                                    if let country = server.countryName, !country.isEmpty {
+                                        Text("• \(country)")
+                                            .font(.caption)
+                                            .foregroundColor(.blue)
+                                            .lineLimit(1)
+                                    }
+                                }
 
                                 Text("\(server.address):\(server.port) • \(protocolBadgeText(server))")
                                     .font(.caption)
@@ -173,6 +192,9 @@ struct DashboardView: View {
             }
             .navigationTitle("ffpp")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                vpnManager.updateStatus()
+            }
         }
     }
 
@@ -199,7 +221,7 @@ struct DashboardView: View {
     }
 
     private var statusColor: Color {
-        switch vm.vpnManager.status {
+        switch vpnManager.status {
         case .connected:
             return .green
         case .connecting:

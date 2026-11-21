@@ -17,13 +17,19 @@ public final class VPNManager: ObservableObject {
     @Published public var lastError: String?
 
     private var providerManager: NETunnelProviderManager?
-    private var cancellables = Set<AnyCancellable>()
+    private var statusTimer: Timer?
 
     private init() {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(vpnStatusDidChange(_:)),
             name: .NEVPNStatusDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(vpnStatusDidChange(_:)),
+            name: .NEVPNConfigurationChange,
             object: nil
         )
         refreshManager()
@@ -62,25 +68,49 @@ public final class VPNManager: ObservableObject {
         }
     }
 
-    private func updateStatus() {
+    public func updateStatus() {
         guard let manager = providerManager else {
-            status = .disconnected
+            if self.status != .disconnected {
+                self.status = .disconnected
+            }
             return
         }
+
+        let newStatus: TunnelStatus
         switch manager.connection.status {
         case .connected:
-            status = .connected
+            newStatus = .connected
+            stopStatusPolling()
         case .connecting, .reasserting:
-            status = .connecting
+            newStatus = .connecting
         case .disconnecting:
-            status = .disconnecting
+            newStatus = .disconnecting
         case .disconnected:
-            status = .disconnected
+            newStatus = .disconnected
+            stopStatusPolling()
         case .invalid:
-            status = .invalid
+            newStatus = .invalid
+            stopStatusPolling()
         @unknown default:
-            status = .disconnected
+            newStatus = .disconnected
+            stopStatusPolling()
         }
+
+        if self.status != newStatus {
+            self.status = newStatus
+        }
+    }
+
+    private func startStatusPolling() {
+        stopStatusPolling()
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+            self?.updateStatus()
+        }
+    }
+
+    private func stopStatusPolling() {
+        statusTimer?.invalidate()
+        statusTimer = nil
     }
 
     public func connect(configJSON: String) {
@@ -88,6 +118,10 @@ public final class VPNManager: ObservableObject {
             refreshManager()
             return
         }
+
+        // Immediately update UI to connecting
+        self.status = .connecting
+        startStatusPolling()
 
         manager.isEnabled = true
         let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
@@ -107,18 +141,25 @@ public final class VPNManager: ObservableObject {
             DispatchQueue.main.async {
                 if let error = error {
                     self.lastError = "Не удалось сохранить VPN: \(error.localizedDescription)"
+                    self.status = .invalid
+                    self.stopStatusPolling()
                     return
                 }
                 manager.loadFromPreferences { error in
                     DispatchQueue.main.async {
                         if let error = error {
                             self.lastError = "Ошибка перезагрузки: \(error.localizedDescription)"
+                            self.status = .invalid
+                            self.stopStatusPolling()
                             return
                         }
                         do {
                             try manager.connection.startVPNTunnel(options: nil)
+                            self.startStatusPolling()
                         } catch {
                             self.lastError = "Не удалось запустить туннель: \(error.localizedDescription)"
+                            self.status = .invalid
+                            self.stopStatusPolling()
                         }
                     }
                 }
@@ -127,6 +168,8 @@ public final class VPNManager: ObservableObject {
     }
 
     public func disconnect() {
+        self.status = .disconnecting
+        startStatusPolling()
         providerManager?.connection.stopVPNTunnel()
     }
 }

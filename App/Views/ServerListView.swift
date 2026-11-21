@@ -12,7 +12,8 @@ struct ServerListView: View {
         return vm.servers.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
             $0.address.localizedCaseInsensitiveContains(searchText) ||
-            $0.protocolType.localizedCaseInsensitiveContains(searchText)
+            $0.protocolType.localizedCaseInsensitiveContains(searchText) ||
+            ($0.countryName?.localizedCaseInsensitiveContains(searchText) ?? false)
         }
     }
 
@@ -47,7 +48,7 @@ struct ServerListView: View {
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Поиск узла...")
+            .searchable(text: $searchText, prompt: "Поиск узла, страны...")
             .navigationTitle("Узлы (\(vm.servers.count))")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -84,10 +85,23 @@ struct ServerRowView: View {
                     .font(.title3)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(server.name)
-                        .font(.body)
-                        .fontWeight(isSelected ? .semibold : .regular)
-                        .foregroundColor(.primary)
+                    HStack(spacing: 6) {
+                        if let flag = server.flagEmoji, !flag.isEmpty {
+                            Text(flag)
+                                .font(.body)
+                        }
+
+                        Text(server.name)
+                            .font(.body)
+                            .fontWeight(isSelected ? .semibold : .regular)
+                            .foregroundColor(.primary)
+
+                        if let country = server.countryName, !country.isEmpty {
+                            Text("(\(country))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
 
                     HStack(spacing: 6) {
                         Text(server.address)

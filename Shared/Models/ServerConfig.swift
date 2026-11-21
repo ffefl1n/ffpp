@@ -6,26 +6,32 @@ public struct ServerConfig: Identifiable, Codable, Equatable, Hashable {
     public var address: String
     public var port: Int
     public var protocolType: String // "vless", "hysteria2", "hysteria"
-    public var uuid: String // or password for hysteria
-    public var password: String? // explicit password for hysteria
+    public var uuid: String
+    public var password: String?
     public var flow: String?
     public var security: String // "reality", "tls", "none"
     public var sni: String?
-    public var fingerprint: String? // e.g. "chrome"
-    public var publicKey: String? // pbk for Reality
-    public var shortId: String? // sid for Reality
-    public var spiderX: String? // spx for Reality
-    public var obfsType: String? // for Hysteria 2 (e.g. "salamander")
+    public var fingerprint: String?
+    public var publicKey: String?
+    public var shortId: String?
+    public var spiderX: String?
+    public var obfsType: String?
     public var obfsPassword: String?
     public var insecure: Bool
-    public var ports: String? // port hopping
-    public var network: String // "tcp", "ws", "grpc", "udp"
+    public var ports: String?
+    public var network: String
     public var path: String?
     public var host: String?
     public var serviceName: String?
     public var subscriptionId: UUID?
     public var pingMs: Int?
     public var lastTested: Date?
+
+    // GeoIP & Location Fields
+    public var countryCode: String?
+    public var countryName: String?
+    public var city: String?
+    public var flagEmoji: String?
 
     public init(
         id: UUID = UUID(),
@@ -52,7 +58,11 @@ public struct ServerConfig: Identifiable, Codable, Equatable, Hashable {
         serviceName: String? = nil,
         subscriptionId: UUID? = nil,
         pingMs: Int? = nil,
-        lastTested: Date? = nil
+        lastTested: Date? = nil,
+        countryCode: String? = nil,
+        countryName: String? = nil,
+        city: String? = nil,
+        flagEmoji: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -79,5 +89,9 @@ public struct ServerConfig: Identifiable, Codable, Equatable, Hashable {
         self.subscriptionId = subscriptionId
         self.pingMs = pingMs
         self.lastTested = lastTested
+        self.countryCode = countryCode
+        self.countryName = countryName
+        self.city = city
+        self.flagEmoji = flagEmoji
     }
 }

@@ -19,8 +19,18 @@ public final class AppViewModel: ObservableObject {
     public let vpnManager = VPNManager.shared
     private let storage = StorageManager.shared
     private let subscriptionService = HappSubscriptionService.shared
+    private let geoIPService = GeoIPService.shared
+    private var cancellables = Set<AnyCancellable>()
 
     public init() {
+        // Forward vpnManager changes to notify SwiftUI views
+        vpnManager.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
         loadData()
     }
 
@@ -39,10 +49,39 @@ public final class AppViewModel: ObservableObject {
             self.settings.activeServerId = first.id
             saveData()
         }
+
+        // Trigger background GeoIP resolution for nodes without location
+        Task {
+            await resolveLocations()
+        }
     }
 
     public func saveData() {
         storage.save(subscriptions: subscriptions, servers: servers, settings: settings)
+    }
+
+    public func resolveLocations() async {
+        var updated = false
+        for i in 0..<servers.count {
+            if servers[i].countryName == nil || servers[i].flagEmoji == nil {
+                if let loc = await geoIPService.resolveLocation(address: servers[i].address, name: servers[i].name) {
+                    servers[i].countryCode = loc.countryCode
+                    servers[i].countryName = loc.countryName
+                    servers[i].city = loc.city
+                    servers[i].flagEmoji = loc.flag
+                    if activeServer?.id == servers[i].id {
+                        activeServer?.countryCode = loc.countryCode
+                        activeServer?.countryName = loc.countryName
+                        activeServer?.city = loc.city
+                        activeServer?.flagEmoji = loc.flag
+                    }
+                    updated = true
+                }
+            }
+        }
+        if updated {
+            saveData()
+        }
     }
 
     public func selectServer(_ server: ServerConfig) {
@@ -105,6 +144,11 @@ public final class AppViewModel: ObservableObject {
 
             saveData()
             successMessage = "Успешно добавлено \(fetchedServers.count) узлов!"
+
+            // Resolve location in background
+            Task {
+                await self.resolveLocations()
+            }
         } catch {
             self.lastServerResponsePreview = subscriptionService.lastRawResponse
             self.errorMessage = error.localizedDescription
@@ -142,6 +186,10 @@ public final class AppViewModel: ObservableObject {
 
             saveData()
             successMessage = "Подписка «\(subscription.name)» обновлена: \(fetchedServers.count) узлов"
+
+            Task {
+                await self.resolveLocations()
+            }
         } catch {
             self.lastServerResponsePreview = subscriptionService.lastRawResponse
             self.errorMessage = error.localizedDescription
@@ -224,6 +272,7 @@ public final class AppViewModel: ObservableObject {
             self.hwid = payload.hwid
             self.activeServer = payload.servers.first(where: { $0.id == payload.settings.activeServerId }) ?? payload.servers.first
             successMessage = "Резервная копия успешно восстановлена!"
+            Task { await self.resolveLocations() }
         case .failure(let err):
             errorMessage = "Ошибка импорта: \(err.localizedDescription)"
         }
