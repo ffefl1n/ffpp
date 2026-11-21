@@ -1,65 +1,111 @@
 import Foundation
 
-/// Generates valid sing-box JSON configuration for VLESS + Reality / TLS
+/// Generates valid sing-box JSON configuration for VLESS and Hysteria 2 / 1
 public final class SingBoxConfigBuilder {
     public static let shared = SingBoxConfigBuilder()
     private init() {}
 
     public func buildJSON(for server: ServerConfig, settings: AppSettings) -> String? {
-        var outboundDict: [String: Any] = [
-            "type": "vless",
-            "tag": "proxy",
-            "server": server.address,
-            "server_port": server.port,
-            "uuid": server.uuid,
-            "packet_encoding": "xudp"
-        ]
+        var outboundDict: [String: Any] = [:]
 
-        if let flow = server.flow, !flow.isEmpty {
-            outboundDict["flow"] = flow
-        }
+        let proto = server.protocolType.lowercased()
 
-        // TLS & Reality configuration
-        if server.security.lowercased() == "reality" || server.security.lowercased() == "tls" {
-            var tlsDict: [String: Any] = [
-                "enabled": true,
-                "server_name": server.sni ?? server.address,
-                "utls": [
+        if proto == "hysteria2" || proto == "hy2" {
+            var hy2: [String: Any] = [
+                "type": "hysteria2",
+                "tag": "proxy",
+                "server": server.address,
+                "server_port": server.port,
+                "password": server.password ?? server.uuid,
+                "tls": [
                     "enabled": true,
-                    "fingerprint": server.fingerprint ?? "chrome"
+                    "server_name": server.sni ?? server.address,
+                    "insecure": server.insecure
                 ]
             ]
 
-            if server.security.lowercased() == "reality" {
-                var realityDict: [String: Any] = [
-                    "enabled": true,
-                    "public_key": server.publicKey ?? ""
+            if let obfsType = server.obfsType, !obfsType.isEmpty {
+                hy2["obfs"] = [
+                    "type": obfsType,
+                    "password": server.obfsPassword ?? ""
                 ]
-                if let shortId = server.shortId, !shortId.isEmpty {
-                    realityDict["short_id"] = shortId
+            }
+
+            outboundDict = hy2
+
+        } else if proto == "hysteria" {
+            outboundDict = [
+                "type": "hysteria",
+                "tag": "proxy",
+                "server": server.address,
+                "server_port": server.port,
+                "auth_str": server.password ?? server.uuid,
+                "tls": [
+                    "enabled": true,
+                    "server_name": server.sni ?? server.address,
+                    "insecure": server.insecure
+                ]
+            ]
+
+        } else {
+            // Default: VLESS
+            var vless: [String: Any] = [
+                "type": "vless",
+                "tag": "proxy",
+                "server": server.address,
+                "server_port": server.port,
+                "uuid": server.uuid,
+                "packet_encoding": "xudp"
+            ]
+
+            if let flow = server.flow, !flow.isEmpty {
+                vless["flow"] = flow
+            }
+
+            // TLS & Reality configuration
+            if server.security.lowercased() == "reality" || server.security.lowercased() == "tls" {
+                var tlsDict: [String: Any] = [
+                    "enabled": true,
+                    "server_name": server.sni ?? server.address,
+                    "utls": [
+                        "enabled": true,
+                        "fingerprint": server.fingerprint ?? "chrome"
+                    ]
+                ]
+
+                if server.security.lowercased() == "reality" {
+                    var realityDict: [String: Any] = [
+                        "enabled": true,
+                        "public_key": server.publicKey ?? ""
+                    ]
+                    if let shortId = server.shortId, !shortId.isEmpty {
+                        realityDict["short_id"] = shortId
+                    }
+                    tlsDict["reality"] = realityDict
                 }
-                tlsDict["reality"] = realityDict
+
+                vless["tls"] = tlsDict
             }
 
-            outboundDict["tls"] = tlsDict
-        }
+            // Transport (WS / gRPC)
+            if server.network.lowercased() == "ws" {
+                var wsDict: [String: Any] = ["type": "ws"]
+                if let path = server.path, !path.isEmpty {
+                    wsDict["path"] = path
+                }
+                if let host = server.host, !host.isEmpty {
+                    wsDict["headers"] = ["Host": host]
+                }
+                vless["transport"] = wsDict
+            } else if server.network.lowercased() == "grpc" {
+                var grpcDict: [String: Any] = ["type": "grpc"]
+                if let serviceName = server.serviceName ?? server.path, !serviceName.isEmpty {
+                    grpcDict["service_name"] = serviceName
+                }
+                vless["transport"] = grpcDict
+            }
 
-        // Transport (WS / gRPC)
-        if server.network.lowercased() == "ws" {
-            var wsDict: [String: Any] = ["type": "ws"]
-            if let path = server.path, !path.isEmpty {
-                wsDict["path"] = path
-            }
-            if let host = server.host, !host.isEmpty {
-                wsDict["headers"] = ["Host": host]
-            }
-            outboundDict["transport"] = wsDict
-        } else if server.network.lowercased() == "grpc" {
-            var grpcDict: [String: Any] = ["type": "grpc"]
-            if let serviceName = server.serviceName ?? server.path, !serviceName.isEmpty {
-                grpcDict["service_name"] = serviceName
-            }
-            outboundDict["transport"] = grpcDict
+            outboundDict = vless
         }
 
         // Direct outbound

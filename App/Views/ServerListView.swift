@@ -11,7 +11,8 @@ struct ServerListView: View {
         }
         return vm.servers.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.address.localizedCaseInsensitiveContains(searchText)
+            $0.address.localizedCaseInsensitiveContains(searchText) ||
+            $0.protocolType.localizedCaseInsensitiveContains(searchText)
         }
     }
 
@@ -22,7 +23,7 @@ struct ServerListView: View {
                     ContentUnavailableView(
                         "Нет серверов",
                         systemImage: "server.rack",
-                        description: Text("Добавьте подписку во вкладке «Подписки» для загрузки узлов.")
+                        description: Text("Добавьте подписку во вкладке «Подписки» для загрузки узлов VLESS или Hysteria.")
                     )
                 } else {
                     ForEach(filteredServers) { server in
@@ -101,15 +102,7 @@ struct ServerRowView: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
 
-                        if server.security.lowercased() == "reality" {
-                            Text("REALITY")
-                                .font(.system(size: 9, weight: .bold))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.purple.opacity(0.15))
-                                .foregroundColor(.purple)
-                                .cornerRadius(3)
-                        }
+                        protocolBadge
                     }
                 }
 
@@ -136,5 +129,43 @@ struct ServerRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var protocolBadge: some View {
+        let proto = server.protocolType.lowercased()
+        if proto.contains("hysteria2") || proto == "hy2" {
+            Text("HY2")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.orange.opacity(0.15))
+                .foregroundColor(.orange)
+                .cornerRadius(3)
+        } else if proto.contains("hysteria") {
+            Text("HYSTERIA")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.teal.opacity(0.15))
+                .foregroundColor(.teal)
+                .cornerRadius(3)
+        } else if server.security.lowercased() == "reality" {
+            Text("REALITY")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.purple.opacity(0.15))
+                .foregroundColor(.purple)
+                .cornerRadius(3)
+        } else {
+            Text("VLESS")
+                .font(.system(size: 9, weight: .bold))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.blue.opacity(0.15))
+                .foregroundColor(.blue)
+                .cornerRadius(3)
+        }
     }
 }

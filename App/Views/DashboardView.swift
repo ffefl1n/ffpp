@@ -14,8 +14,8 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 28) {
-                // Top Status Badge
+            VStack(spacing: 24) {
+                // Device & Status Banner
                 HStack(spacing: 8) {
                     Circle()
                         .fill(statusColor)
@@ -32,7 +32,7 @@ struct DashboardView: View {
                 .padding(.vertical, 8)
                 .background(Color(.secondarySystemBackground))
                 .cornerRadius(20)
-                .padding(.top, 20)
+                .padding(.top, 16)
 
                 Spacer()
 
@@ -70,7 +70,7 @@ struct DashboardView: View {
                 if let server = vm.activeServer {
                     NavigationLink(destination: ServerListView()) {
                         HStack(spacing: 14) {
-                            Image(systemName: "bolt.horizontal.fill")
+                            Image(systemName: serverIcon(server))
                                 .font(.title3)
                                 .foregroundColor(.blue)
                                 .frame(width: 36, height: 36)
@@ -83,7 +83,7 @@ struct DashboardView: View {
                                     .lineLimit(1)
                                     .foregroundColor(.primary)
 
-                                Text("\(server.address):\(server.port) • \(server.security.uppercased())")
+                                Text("\(server.address):\(server.port) • \(protocolBadgeText(server))")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -127,39 +127,75 @@ struct DashboardView: View {
                     }
                 }
 
-                // Happ HWID Banner
-                HStack(spacing: 8) {
-                    Image(systemName: "lock.shield")
-                        .foregroundColor(.green)
-                    Text("Happ HWID активен:")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Text(vm.hwid.prefix(8) + "...")
-                        .font(.caption2.monospaced())
-                        .foregroundColor(.primary)
-
-                    Spacer()
-
-                    Button {
-                        UIPasteboard.general.string = vm.hwid
-                        let gen = UINotificationFeedbackGenerator()
-                        gen.notificationOccurred(.success)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption)
+                // Device and Happ HWID Card
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "iphone")
                             .foregroundColor(.blue)
+                        Text("Устройство:")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("\(DeviceHelper.modelName) (\(DeviceHelper.modelIdentifier))")
+                            .font(.caption2.bold())
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.shield")
+                            .foregroundColor(.green)
+                        Text("Happ HWID:")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(vm.hwid.prefix(8) + "...")
+                            .font(.caption2.monospaced())
+                            .foregroundColor(.primary)
+
+                        Spacer()
+
+                        Button {
+                            UIPasteboard.general.string = vm.hwid
+                            let gen = UINotificationFeedbackGenerator()
+                            gen.notificationOccurred(.success)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
                 .background(Color(.tertiarySystemBackground))
-                .cornerRadius(10)
+                .cornerRadius(12)
                 .padding(.horizontal)
                 .padding(.bottom, 12)
             }
             .navigationTitle("ffpp")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private func serverIcon(_ server: ServerConfig) -> String {
+        let proto = server.protocolType.lowercased()
+        if proto.contains("hysteria") || proto.contains("hy2") {
+            return "wind"
+        }
+        return "bolt.horizontal.fill"
+    }
+
+    private func protocolBadgeText(_ server: ServerConfig) -> String {
+        let proto = server.protocolType.uppercased()
+        if proto.contains("HYSTERIA2") || proto == "HY2" {
+            return "HYSTERIA 2"
+        }
+        if proto.contains("HYSTERIA") {
+            return "HYSTERIA"
+        }
+        if server.security.lowercased() == "reality" {
+            return "VLESS REALITY"
+        }
+        return "VLESS"
     }
 
     private var statusColor: Color {
