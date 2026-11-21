@@ -75,11 +75,32 @@ struct SettingsView: View {
                             }
                     }
 
-                    HStack {
-                        Text("MTU туннеля")
-                        Spacer()
-                        Text("\(vm.settings.mtu)")
-                            .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("MTU туннеля")
+                            Spacer()
+                            TextField("MTU", value: $vm.settings.mtu, format: .number)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .foregroundColor(.secondary)
+                                .frame(width: 80)
+                                .onChange(of: vm.settings.mtu) { newVal in
+                                    if newVal < 576 { vm.settings.mtu = 576 }
+                                    if newVal > 9000 { vm.settings.mtu = 9000 }
+                                    vm.saveData()
+                                }
+                        }
+                        HStack(spacing: 8) {
+                            ForEach([1500, 1420, 1360, 1280], id: \.self) { val in
+                                Button("\(val)") {
+                                    vm.settings.mtu = val
+                                    vm.saveData()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.mini)
+                                .tint(vm.settings.mtu == val ? .blue : .gray)
+                            }
+                        }
                     }
                 }
 

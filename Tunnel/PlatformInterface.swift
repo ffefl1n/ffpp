@@ -13,7 +13,7 @@ public final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol 
         super.init()
     }
 
-    public func autoDetectInterfaceControl(_ fd: Int32) throws {
+    public func autoDetectControl(_ fd: Int32) throws {
         // No-op
     }
 
@@ -30,7 +30,7 @@ public final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol 
         throw NSError(domain: "PlatformInterface", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not implemented"])
     }
 
-    public func getInterfaces() throws -> (any LibboxNetworkInterfaceIteratorProtocol)? {
+    public func getInterfaces() throws -> any LibboxNetworkInterfaceIteratorProtocol {
         guard let monitor = nwMonitor else { return EmptyInterfaceIterator() }
         let path = monitor.currentPath
         guard path.status != .unsatisfied else { return EmptyInterfaceIterator() }
@@ -65,18 +65,14 @@ public final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol 
         }
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
-        let mtu = options?.getMTU() ?? 9000
-        settings.mtu = NSNumber(value: mtu > 0 ? mtu : 9000)
+        let reqMtu = options?.getMTU() ?? 0
+        let mtu = reqMtu > 0 ? reqMtu : 1500
+        settings.mtu = NSNumber(value: mtu)
 
         // DNS Servers
-        var dnsServers: [String] = []
-        if let dnsIter = try? options?.getDNSServerAddress() {
-            while dnsIter.hasNext() {
-                dnsServers.append(dnsIter.next())
-            }
-        }
-        if dnsServers.isEmpty {
-            dnsServers = ["1.1.1.1", "8.8.8.8"]
+        var dnsServers = ["1.1.1.1", "8.8.8.8"]
+        if let dnsBox = try? options?.getDNSServerAddress(), !dnsBox.value.isEmpty {
+            dnsServers = [dnsBox.value]
         }
         let dnsSettings = NEDNSSettings(servers: dnsServers)
         dnsSettings.matchDomains = [""]
@@ -166,7 +162,7 @@ public final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol 
         throw NSError(domain: "PlatformInterface", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to acquire TUN file descriptor"])
     }
 
-    public func packageName(byUid uid: Int32) throws -> String {
+    public func packageName(byUid uid: Int32, error: NSErrorPointer) -> String {
         return ""
     }
 
@@ -206,7 +202,7 @@ public final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol 
         return true
     }
 
-    public func usePlatformAutoDetectInterfaceControl() -> Bool {
+    public func usePlatformAutoDetectControl() -> Bool {
         return false
     }
 

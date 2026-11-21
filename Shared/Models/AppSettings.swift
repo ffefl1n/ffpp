@@ -12,7 +12,7 @@ public struct AppSettings: Codable, Equatable {
         bypassLAN: Bool = true,
         remoteDNS: String = "1.1.1.1",
         directDNS: String = "77.88.8.8",
-        mtu: Int = 9000,
+        mtu: Int = 1500,
         activeServerId: UUID? = nil,
         autoConnectOnLaunch: Bool = false
     ) {
