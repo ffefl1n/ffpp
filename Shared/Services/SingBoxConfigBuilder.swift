@@ -120,32 +120,43 @@ public final class SingBoxConfigBuilder {
             "tag": "block"
         ]
 
+        // Internal DNS outbound
+        let dnsOutbound: [String: Any] = [
+            "type": "dns",
+            "tag": "dns-out"
+        ]
+
         // TUN Inbound
         let tunInbound: [String: Any] = [
             "type": "tun",
             "tag": "tun-in",
-            "interface_name": "utun10",
-            "mtu": settings.mtu,
+            "address": ["172.19.0.1/30"],
             "inet4_address": "172.19.0.1/30",
+            "mtu": settings.mtu,
             "auto_route": true,
-            "strict_route": true,
+            "strict_route": false,
             "stack": "mixed",
             "sniff": true,
             "sniff_override_destination": true
         ]
+
+        // Remote DNS address (format: tcp://host)
+        let remoteDnsAddr = settings.remoteDNS.contains("://") ? settings.remoteDNS : "tcp://\(settings.remoteDNS)"
+        // Direct DNS (defaults to 77.88.8.8 if unconfigured or 223.5.5.5)
+        let directDnsAddr = (settings.directDNS.isEmpty || settings.directDNS == "223.5.5.5") ? "77.88.8.8" : settings.directDNS
 
         // DNS Configuration
         let dnsDict: [String: Any] = [
             "servers": [
                 [
                     "tag": "dns-remote",
-                    "address": "https://\(settings.remoteDNS)/dns-query",
+                    "address": remoteDnsAddr,
                     "address_resolver": "dns-direct",
                     "detour": "proxy"
                 ],
                 [
                     "tag": "dns-direct",
-                    "address": "https://\(settings.directDNS)/dns-query",
+                    "address": directDnsAddr,
                     "detour": "direct"
                 ]
             ],
@@ -162,7 +173,11 @@ public final class SingBoxConfigBuilder {
         var routeRules: [[String: Any]] = [
             [
                 "protocol": "dns",
-                "outbound": "dns-remote"
+                "outbound": "dns-out"
+            ],
+            [
+                "port": 53,
+                "outbound": "dns-out"
             ]
         ]
 
@@ -175,7 +190,8 @@ public final class SingBoxConfigBuilder {
 
         let routeDict: [String: Any] = [
             "rules": routeRules,
-            "auto_detect_interface": true
+            "auto_detect_interface": true,
+            "final": "proxy"
         ]
 
         let fullConfig: [String: Any] = [
@@ -185,7 +201,7 @@ public final class SingBoxConfigBuilder {
             ],
             "dns": dnsDict,
             "inbounds": [tunInbound],
-            "outbounds": [outboundDict, directOutbound, blockOutbound],
+            "outbounds": [outboundDict, directOutbound, blockOutbound, dnsOutbound],
             "route": routeDict
         ]
 

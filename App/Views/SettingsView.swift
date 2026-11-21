@@ -106,13 +106,13 @@ struct SettingsView: View {
                     HStack {
                         Text("Версия")
                         Spacer()
-                        Text("1.0.0 (Build 1)")
+                        Text("1.0.1 (Build 2)")
                             .foregroundColor(.secondary)
                     }
                     HStack {
                         Text("Ядро туннеля")
                         Spacer()
-                        Text("sing-box (VLESS + Reality)")
+                        Text("sing-box 1.11 (Libbox)")
                             .foregroundColor(.secondary)
                     }
                 }

@@ -1,21 +1,15 @@
 import Foundation
 import NetworkExtension
 import os.log
-
-#if canImport(Libbox)
 import Libbox
-#endif
 
 open class PacketTunnelProvider: NEPacketTunnelProvider {
     private let logger = Logger(subsystem: "com.ffpp.app.tunnel", category: "PacketTunnel")
-    private var isRunning = false
-
-    #if canImport(Libbox)
     private var boxService: LibboxBoxService?
-    #endif
+    private var platformInterface: PlatformInterface?
 
     open override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        logger.info("Запуск системного VPN туннеля ffpp...")
+        logger.info("Запуск системного VPN туннеля ffpp v1.0.1...")
 
         let configJSON = loadConfigJSON(options: options)
         guard let config = configJSON, !config.isEmpty else {
@@ -24,72 +18,56 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Configure system tunnel network settings
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "172.19.0.2")
+        // Setup working directories for Libbox
+        let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.ffpp.app")
+        let basePath = groupURL?.path ?? NSTemporaryDirectory()
+        let workingPath = (groupURL?.appendingPathComponent("singbox_work") ?? URL(fileURLWithPath: NSTemporaryDirectory())).path
+        let tempPath = (groupURL?.appendingPathComponent("singbox_temp") ?? URL(fileURLWithPath: NSTemporaryDirectory())).path
 
-        let ipv4 = NEIPv4Settings(addresses: ["172.19.0.1"], subnetMasks: ["255.255.255.252"])
-        ipv4.includedRoutes = [NEIPv4Route.default()]
+        try? FileManager.default.createDirectory(atPath: workingPath, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(atPath: tempPath, withIntermediateDirectories: true)
 
-        // Exclude private local networks (LAN)
-        let lanRoutes: [NEIPv4Route] = [
-            NEIPv4Route(destinationAddress: "10.0.0.0", subnetMask: "255.0.0.0"),
-            NEIPv4Route(destinationAddress: "172.16.0.0", subnetMask: "255.240.0.0"),
-            NEIPv4Route(destinationAddress: "192.168.0.0", subnetMask: "255.255.0.0"),
-            NEIPv4Route(destinationAddress: "127.0.0.0", subnetMask: "255.0.0.0")
-        ]
-        ipv4.excludedRoutes = lanRoutes
-        settings.ipv4Settings = ipv4
+        let setupOpts = LibboxSetupOptions()
+        setupOpts.basePath = basePath
+        setupOpts.workingPath = workingPath
+        setupOpts.tempPath = tempPath
+        var setupError: NSError?
+        LibboxSetup(setupOpts, &setupError)
+        if let setupError = setupError {
+            logger.warning("LibboxSetup warning: \(setupError.localizedDescription)")
+        }
 
-        let dns = NEDNSSettings(servers: ["1.1.1.1", "1.0.0.1", "8.8.8.8"])
-        dns.matchDomains = [""]
-        settings.dnsSettings = dns
-        settings.mtu = 9000
+        let platform = PlatformInterface(tunnel: self)
+        self.platformInterface = platform
 
-        setTunnelNetworkSettings(settings) { [weak self] error in
-            guard let self = self else { return }
-            if let error = error {
-                self.logger.error("Ошибка применения сетевых параметров: \(error.localizedDescription)")
-                completionHandler(error)
-                return
-            }
+        var serviceErr: NSError?
+        let service = LibboxNewService(config, platform, &serviceErr)
+        if let serviceErr = serviceErr {
+            logger.error("LibboxNewService error: \(serviceErr.localizedDescription)")
+            completionHandler(serviceErr)
+            return
+        }
+        guard let s = service else {
+            completionHandler(NSError(domain: "com.ffpp.app.tunnel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize Libbox service"]))
+            return
+        }
 
-            self.isRunning = true
-
-            #if canImport(Libbox)
-            do {
-                // Initialize Libbox Command Server or standalone core
-                var optErr: NSError?
-                let service = LibboxNewStandaloneCommandClient(config, &optErr)
-                if let optErr = optErr {
-                    self.logger.error("Ошибка инициализации Libbox: \(optErr.localizedDescription)")
-                    completionHandler(optErr)
-                    return
-                }
-                self.boxService = service
-                try service?.start()
-                self.logger.info("Libbox ядро успешно запущено")
-                completionHandler(nil)
-            } catch {
-                self.logger.error("Сбой запуска Libbox: \(error.localizedDescription)")
-                completionHandler(error)
-            }
-            #else
-            // Fallback: Packet loop running
-            self.logger.info("Туннель запущен (режим совместимости)")
+        self.boxService = s
+        do {
+            try s.start()
+            self.logger.info("Libbox core successfully started")
             completionHandler(nil)
-            #endif
+        } catch {
+            self.logger.error("Libbox start failed: \(error.localizedDescription)")
+            completionHandler(error)
         }
     }
 
     open override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         logger.info("Остановка системного туннеля. Причина: \(reason.rawValue)")
-        isRunning = false
-
-        #if canImport(Libbox)
         try? boxService?.close()
         boxService = nil
-        #endif
-
+        platformInterface = nil
         completionHandler()
     }
 
@@ -98,16 +76,21 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func loadConfigJSON(options: [String : NSObject]?) -> String? {
-        // 1. Try providerConfiguration
+        // 1. Try options passed to startVPNTunnel
+        if let options = options, let json = options["configJSON"] as? String, !json.isEmpty {
+            return json
+        }
+
+        // 2. Try providerConfiguration
         if let conf = (protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration,
            let json = conf["configJSON"] as? String, !json.isEmpty {
             return json
         }
 
-        // 2. Try App Group container file
+        // 3. Try App Group container file
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.ffpp.app") {
             let configFile = groupURL.appendingPathComponent("singbox_config.json")
-            if let data = try? Data(contentsOf: configFile), let str = String(data: data, encoding: .utf8) {
+            if let data = try? Data(contentsOf: configFile), let str = String(data: data, encoding: .utf8), !str.isEmpty {
                 return str
             }
         }

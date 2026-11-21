@@ -154,7 +154,7 @@ public final class VPNManager: ObservableObject {
                             return
                         }
                         do {
-                            try manager.connection.startVPNTunnel(options: nil)
+                            try manager.connection.startVPNTunnel(options: ["configJSON": configJSON as NSString])
                             self.startStatusPolling()
                         } catch {
                             self.lastError = "Не удалось запустить туннель: \(error.localizedDescription)"

@@ -26,6 +26,14 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app || true
           xcodebuild -version
 
+      - name: Download Libbox Framework
+        run: |
+          mkdir -p Frameworks
+          echo "Downloading Libbox.xcframework 1.11.11..."
+          curl -sL "https://github.com/EbrahimTahernejad/sing-box-lib/releases/download/1.11.11/Libbox.xcframework.zip" -o /tmp/Libbox.zip
+          unzip -q /tmp/Libbox.zip -d Frameworks/
+          ls -la Frameworks/Libbox.xcframework
+
       - name: Generate App Icon
         run: |
           python3 scripts/generate_icon.py
@@ -95,22 +103,27 @@ jobs:
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v1.0.0"
-          name: "ffpp v1.0.0"
+          tag_name: "v1.0.1"
+          name: "ffpp v1.0.1"
           body: |
-            ## ffpp v1.0.0 — iOS VLESS / Hysteria Client
+            ## ffpp v1.0.1 — iOS VLESS / Hysteria Client
             
-            - **App Icon**: Новая минималистичная иконка приложения.
-            - **Live Dashboard**: Мгновенное обновление статуса при подключении.
-            - **GeoIP**: Определение локации сервера и страны/флага по IP.
-            - **Happ HWID**: Постоянный Keychain HWID и эмуляция клиента Happ.
-            - **Hysteria 2 / VLESS Reality**: Поддержка современных протоколов.
-            - **Native Screen**: Растяжение на весь экран (LaunchScreen.storyboard).
+            ### Что нового в v1.0.1:
+            - **Встроенное ядро sing-box (Libbox 1.11.11)**: Реальная обработка сетевого трафика внутри NetworkExtension (`utun`).
+            - **Исправлен сброс на "нолики"**: Трафик больше не блокируется; системный поток пакетов направляется в ядро sing-box и проксируется по VLESS / Hysteria.
+            - **Надежный DNS**: Поддержка внутреннего резолвера (`dns-out`), обход локальных сетей (Bypass LAN), отсутствие утечек.
+            - **Стильная иконка приложения**: Темный премиальный стиль со светящейся молнией.
+            - **Полноэкранный режим**: Устранены черные рамки/полосы через родной `LaunchScreen.storyboard`.
+            - **Мгновенное обновление Dashboard**: Статус подключения реагирует в реальном времени.
+            - **GeoIP локация серверов**: Автоматическое определение страны и эмодзи-флага по IP-адресу ноды.
+            - **Идеальная совместимость с Happ**: Постоянный Keychain HWID и правильная эмуляция клиента с динамическим определением iPhone.
             
-            ### Установка:
+            ### Инструкция по установке:
             1. Скачайте `ffpp-unsigned.ipa` ниже.
-            2. Откройте в GBox и подпишите вашим сертификатом (включите тумблер **Sign Extensions**).
-            3. Установите и подтвердите добавление профиля VPN.
+            2. Откройте в GBox (или Scarlet / TrollStore / AltStore / Esign).
+            3. При подписании обязательно включите тумблер:
+               👉 **«Подписывать расширения / PlugIns» (Sign Extensions)**
+            4. Установите и разрешите добавление VPN конфигурации в iOS.
           files: |
             ffpp-unsigned.ipa
             ffpp-unsigned.ipa.sha256
