@@ -79,19 +79,21 @@ public final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol 
         settings.dnsSettings = dnsSettings
 
         // IPv4 Addresses & Subnets
-        var ipv4Addresses: [String] = []
-        var ipv4Masks: [String] = []
+        var ipv4Addresses = ["172.19.0.1"]
+        var ipv4Masks = ["255.255.255.252"]
         if let addrIter = options?.getInet4Address() {
+            var addrs: [String] = []
+            var masks: [String] = []
             while addrIter.hasNext() {
                 if let prefix = addrIter.next() {
-                    ipv4Addresses.append(prefix.address())
-                    ipv4Masks.append(prefix.mask())
+                    addrs.append(prefix.address())
+                    masks.append(prefix.mask())
                 }
             }
-        }
-        if ipv4Addresses.isEmpty {
-            ipv4Addresses = ["172.19.0.1"]
-            ipv4Masks = ["255.255.255.252"]
+            if !addrs.isEmpty {
+                ipv4Addresses = addrs
+                ipv4Masks = masks
+            }
         }
         let ipv4Settings = NEIPv4Settings(addresses: ipv4Addresses, subnetMasks: ipv4Masks)
 
@@ -139,27 +141,20 @@ public final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol 
             throw applyError
         }
 
-        // Obtain TUN file descriptor
-        if let tunFd = (tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? NSNumber)?.int32Value, tunFd >= 0 {
-            ret0_?.pointee = tunFd
-            return
-        }
-        if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32, tunFd >= 0 {
-            ret0_?.pointee = tunFd
-            return
-        }
-        if let handle = tunnel.packetFlow.value(forKey: "socketFileHandle") as? FileHandle, handle.fileDescriptor >= 0 {
-            ret0_?.pointee = handle.fileDescriptor
-            return
-        }
-
+        // 1. First obtain file descriptor via Libbox's native getpeername / ioctl scanner
         let loopFd = LibboxGetTunnelFileDescriptor()
         if loopFd >= 0 {
             ret0_?.pointee = loopFd
             return
         }
 
-        throw NSError(domain: "PlatformInterface", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to acquire TUN file descriptor"])
+        // 2. Fallback: try socketFileHandle safely without keypath crash
+        if let handle = tunnel.packetFlow.value(forKey: "socketFileHandle") as? FileHandle, handle.fileDescriptor >= 0 {
+            ret0_?.pointee = handle.fileDescriptor
+            return
+        }
+
+        throw NSError(domain: "PlatformInterface", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to acquire TUN file descriptor (code: \(loopFd))"])
     }
 
     public func packageName(byUid uid: Int32, error: NSErrorPointer) -> String {

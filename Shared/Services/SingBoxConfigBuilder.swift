@@ -126,12 +126,11 @@ public final class SingBoxConfigBuilder {
             "tag": "dns-out"
         ]
 
-        // TUN Inbound
+        // TUN Inbound (clean modern schema for sing-box 1.11+)
         let tunInbound: [String: Any] = [
             "type": "tun",
             "tag": "tun-in",
             "address": ["172.19.0.1/30"],
-            "inet4_address": "172.19.0.1/30",
             "mtu": settings.mtu,
             "auto_route": true,
             "strict_route": false,
@@ -140,23 +139,36 @@ public final class SingBoxConfigBuilder {
             "sniff_override_destination": true
         ]
 
-        // Remote DNS address (format: tcp://host)
-        let remoteDnsAddr = settings.remoteDNS.contains("://") ? settings.remoteDNS : "tcp://\(settings.remoteDNS)"
-        // Direct DNS (defaults to 77.88.8.8 if unconfigured or 223.5.5.5)
-        let directDnsAddr = (settings.directDNS.isEmpty || settings.directDNS == "223.5.5.5") ? "77.88.8.8" : settings.directDNS
+        // Clean DNS hosts without protocol prefixes
+        let cleanRemote = settings.remoteDNS
+            .replacingOccurrences(of: "tcp://", with: "")
+            .replacingOccurrences(of: "udp://", with: "")
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "/dns-query", with: "")
 
-        // DNS Configuration
+        let cleanDirect = (settings.directDNS.isEmpty || settings.directDNS == "223.5.5.5")
+            ? "77.88.8.8"
+            : settings.directDNS
+                .replacingOccurrences(of: "tcp://", with: "")
+                .replacingOccurrences(of: "udp://", with: "")
+                .replacingOccurrences(of: "https://", with: "")
+                .replacingOccurrences(of: "/dns-query", with: "")
+
+        // DNS Configuration with required typed DNS servers
         let dnsDict: [String: Any] = [
             "servers": [
                 [
                     "tag": "dns-remote",
-                    "address": remoteDnsAddr,
-                    "address_resolver": "dns-direct",
+                    "type": "udp",
+                    "server": cleanRemote.isEmpty ? "1.1.1.1" : cleanRemote,
+                    "server_port": 53,
                     "detour": "proxy"
                 ],
                 [
                     "tag": "dns-direct",
-                    "address": directDnsAddr,
+                    "type": "udp",
+                    "server": cleanDirect,
+                    "server_port": 53,
                     "detour": "direct"
                 ]
             ],
