@@ -155,21 +155,17 @@ public final class SingBoxConfigBuilder {
                 .replacingOccurrences(of: "https://", with: "")
                 .replacingOccurrences(of: "/dns-query", with: "")
 
-        // DNS Configuration with required typed DNS servers
+        // DNS Configuration (format for sing-box 1.11: "address" field)
         let dnsDict: [String: Any] = [
             "servers": [
                 [
                     "tag": "dns-remote",
-                    "type": "udp",
-                    "server": cleanRemote.isEmpty ? "1.1.1.1" : cleanRemote,
-                    "server_port": 53,
+                    "address": cleanRemote.isEmpty ? "1.1.1.1" : cleanRemote,
                     "detour": "proxy"
                 ],
                 [
                     "tag": "dns-direct",
-                    "type": "udp",
-                    "server": cleanDirect,
-                    "server_port": 53,
+                    "address": cleanDirect,
                     "detour": "direct"
                 ]
             ],

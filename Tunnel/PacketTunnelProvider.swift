@@ -7,9 +7,10 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
     private let logger = Logger(subsystem: "com.ffpp.app.tunnel", category: "PacketTunnel")
     private var boxService: LibboxBoxService?
     private var platformInterface: PlatformInterface?
+    private var lastRecordedError: String?
 
     open override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        logger.info("Запуск системного VPN туннеля ffpp v1.0.3...")
+        logger.info("Запуск системного VPN туннеля ffpp v1.0.4...")
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
@@ -86,11 +87,16 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     open override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
-        completionHandler?(nil)
+        if let err = lastRecordedError, let errData = err.data(using: .utf8) {
+            completionHandler?(errData)
+        } else {
+            completionHandler?(nil)
+        }
     }
 
     public func recordError(_ message: String) {
         logger.error("\(message)")
+        self.lastRecordedError = message
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.ffpp.app") {
             let file = groupURL.appendingPathComponent("last_tunnel_error.txt")
             try? message.data(using: .utf8)?.write(to: file, options: .atomic)

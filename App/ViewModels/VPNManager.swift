@@ -105,6 +105,17 @@ public final class VPNManager: ObservableObject {
     }
 
     private func checkRecordedError() {
+        if let session = providerManager?.connection as? NETunnelProviderSession {
+            try? session.sendProviderMessage(Data("getError".utf8)) { [weak self] responseData in
+                if let responseData = responseData, let s = String(data: responseData, encoding: .utf8), !s.isEmpty {
+                    DispatchQueue.main.async {
+                        self?.lastError = s
+                    }
+                    return
+                }
+            }
+        }
+
         var errStr: String?
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: StorageManager.appGroupId) {
             let file = groupURL.appendingPathComponent("last_tunnel_error.txt")
