@@ -81,6 +81,7 @@ public final class VPNManager: ObservableObject {
         case .connected:
             newStatus = .connected
             stopStatusPolling()
+            self.lastError = nil
         case .connecting, .reasserting:
             newStatus = .connecting
         case .disconnecting:
@@ -88,9 +89,11 @@ public final class VPNManager: ObservableObject {
         case .disconnected:
             newStatus = .disconnected
             stopStatusPolling()
+            checkRecordedError()
         case .invalid:
             newStatus = .invalid
             stopStatusPolling()
+            checkRecordedError()
         @unknown default:
             newStatus = .disconnected
             stopStatusPolling()
@@ -98,6 +101,25 @@ public final class VPNManager: ObservableObject {
 
         if self.status != newStatus {
             self.status = newStatus
+        }
+    }
+
+    private func checkRecordedError() {
+        var errStr: String?
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: StorageManager.appGroupId) {
+            let file = groupURL.appendingPathComponent("last_tunnel_error.txt")
+            if let data = try? Data(contentsOf: file), let s = String(data: data, encoding: .utf8), !s.isEmpty {
+                errStr = s
+            }
+        }
+        if errStr == nil, let docsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let file = docsURL.appendingPathComponent("last_tunnel_error.txt")
+            if let data = try? Data(contentsOf: file), let s = String(data: data, encoding: .utf8), !s.isEmpty {
+                errStr = s
+            }
+        }
+        if let errStr = errStr {
+            self.lastError = errStr
         }
     }
 
@@ -119,7 +141,8 @@ public final class VPNManager: ObservableObject {
             return
         }
 
-        // Immediately update UI to connecting
+        // Clear previous error
+        self.lastError = nil
         self.status = .connecting
         startStatusPolling()
 
@@ -130,9 +153,13 @@ public final class VPNManager: ObservableObject {
         proto.providerConfiguration = ["configJSON": configJSON]
         manager.protocolConfiguration = proto
 
-        // Also write config to App Group file for reliability
+        // Also write config to App Group file and Documents for reliability
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: StorageManager.appGroupId) {
             let configFile = groupURL.appendingPathComponent("singbox_config.json")
+            try? configJSON.data(using: .utf8)?.write(to: configFile, options: .atomic)
+        }
+        if let docsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let configFile = docsURL.appendingPathComponent("singbox_config.json")
             try? configJSON.data(using: .utf8)?.write(to: configFile, options: .atomic)
         }
 

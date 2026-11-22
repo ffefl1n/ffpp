@@ -9,15 +9,16 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
     private var platformInterface: PlatformInterface?
 
     open override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        logger.info("Запуск системного VPN туннеля ffpp v1.0.2...")
+        logger.info("Запуск системного VPN туннеля ffpp v1.0.3...")
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
             let configJSON = self.loadConfigJSON(options: options)
             guard let config = configJSON, !config.isEmpty else {
-                self.logger.error("Конфигурация туннеля не найдена")
-                completionHandler(NSError(domain: "com.ffpp.app.tunnel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Отсутствует конфигурация узла"]))
+                let err = NSError(domain: "com.ffpp.app.tunnel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Отсутствует конфигурация узла"])
+                self.recordError(err.localizedDescription)
+                completionHandler(err)
                 return
             }
 
@@ -51,12 +52,14 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
             var serviceErr: NSError?
             let service = LibboxNewService(config, platform, &serviceErr)
             if let serviceErr = serviceErr {
-                self.logger.error("LibboxNewService error: \(serviceErr.localizedDescription)")
+                self.recordError("LibboxNewService error: \(serviceErr.localizedDescription)")
                 completionHandler(serviceErr)
                 return
             }
             guard let s = service else {
-                completionHandler(NSError(domain: "com.ffpp.app.tunnel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize Libbox service"]))
+                let err = NSError(domain: "com.ffpp.app.tunnel", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize Libbox service"])
+                self.recordError(err.localizedDescription)
+                completionHandler(err)
                 return
             }
 
@@ -66,7 +69,7 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.logger.info("Libbox core successfully started")
                 completionHandler(nil)
             } catch {
-                self.logger.error("Libbox start failed: \(error.localizedDescription)")
+                self.recordError("Libbox start failed: \(error.localizedDescription)")
                 completionHandler(error)
             }
         }
@@ -84,6 +87,18 @@ open class PacketTunnelProvider: NEPacketTunnelProvider {
 
     open override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
         completionHandler?(nil)
+    }
+
+    public func recordError(_ message: String) {
+        logger.error("\(message)")
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.ffpp.app") {
+            let file = groupURL.appendingPathComponent("last_tunnel_error.txt")
+            try? message.data(using: .utf8)?.write(to: file, options: .atomic)
+        }
+        if let docsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let file = docsURL.appendingPathComponent("last_tunnel_error.txt")
+            try? message.data(using: .utf8)?.write(to: file, options: .atomic)
+        }
     }
 
     private func loadConfigJSON(options: [String : NSObject]?) -> String? {

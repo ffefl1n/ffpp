@@ -104,30 +104,11 @@ struct SettingsView: View {
                     }
                 }
 
-                // GBox Instructions Section
-                Section(header: Text("Справка по установке через GBox")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("1. Импортируйте покупной `.p12` и `.mobileprovision` в GBox.")
-                            .font(.caption)
-                        Text("2. Добавьте собранный `.ipa` приложения в GBox.")
-                            .font(.caption)
-                        Text("3. В настройках подписи ОБЯЗАТЕЛЬНО включите:")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                        Text("   • «Подписывать расширения / PlugIns» (Sign Extensions)")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Text("4. Установите и подтвердите добавление VPN-профиля при первом запуске.")
-                            .font(.caption)
-                    }
-                    .padding(.vertical, 4)
-                }
-
                 Section(header: Text("О приложении")) {
                     HStack {
                         Text("Версия")
                         Spacer()
-                        Text("1.0.2 (Build 3)")
+                        Text("1.0.3 (Build 4)")
                             .foregroundColor(.secondary)
                     }
                     HStack {

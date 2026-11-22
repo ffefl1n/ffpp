@@ -15,7 +15,7 @@ struct DashboardView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
+            VStack(spacing: 20) {
                 // Device & Status Banner
                 HStack(spacing: 8) {
                     Circle()
@@ -34,6 +34,30 @@ struct DashboardView: View {
                 .background(Color(.secondarySystemBackground))
                 .cornerRadius(20)
                 .padding(.top, 16)
+
+                // Error Diagnostic Card if present
+                if let err = vpnManager.lastError, !err.isEmpty {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.subheadline)
+                        Text(err)
+                            .font(.caption)
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                        Button {
+                            vpnManager.lastError = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.orange.opacity(0.15))
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+                }
 
                 Spacer()
 
@@ -160,64 +184,35 @@ struct DashboardView: View {
                         Spacer()
                     }
 
-                    HStack(spacing: 8) {
-                        Image(systemName: "lock.shield")
-                            .foregroundColor(.green)
-                        Text("Happ HWID:")
+                    HStack {
+                        Image(systemName: "key.fill")
+                            .foregroundColor(.secondary)
+                        Text("HWID:")
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                        Text(vm.hwid.prefix(8) + "...")
+                        Text(vm.hwid)
                             .font(.caption2.monospaced())
-                            .foregroundColor(.primary)
-
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
                         Spacer()
-
-                        Button {
-                            UIPasteboard.general.string = vm.hwid
-                            let gen = UINotificationFeedbackGenerator()
-                            gen.notificationOccurred(.success)
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                                .font(.caption)
-                                .foregroundColor(.blue)
-                        }
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color(.tertiarySystemBackground))
+                .padding(12)
+                .background(Color(.secondarySystemBackground).opacity(0.6))
                 .cornerRadius(12)
                 .padding(.horizontal)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
             }
             .navigationTitle("ffpp")
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                vpnManager.updateStatus()
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink(destination: SettingsView()) {
+                        Image(systemName: "gearshape")
+                            .foregroundColor(.primary)
+                    }
+                }
             }
         }
-    }
-
-    private func serverIcon(_ server: ServerConfig) -> String {
-        let proto = server.protocolType.lowercased()
-        if proto.contains("hysteria") || proto.contains("hy2") {
-            return "wind"
-        }
-        return "bolt.horizontal.fill"
-    }
-
-    private func protocolBadgeText(_ server: ServerConfig) -> String {
-        let proto = server.protocolType.uppercased()
-        if proto.contains("HYSTERIA2") || proto == "HY2" {
-            return "HYSTERIA 2"
-        }
-        if proto.contains("HYSTERIA") {
-            return "HYSTERIA"
-        }
-        if server.security.lowercased() == "reality" {
-            return "VLESS REALITY"
-        }
-        return "VLESS"
     }
 
     private var statusColor: Color {
@@ -232,6 +227,25 @@ struct DashboardView: View {
             return .blue
         case .invalid:
             return .red
+        }
+    }
+
+    private func serverIcon(_ server: ServerConfig) -> String {
+        let p = server.protocolType.lowercased()
+        if p == "hysteria2" || p == "hy2" || p == "hysteria" {
+            return "bolt.shield.fill"
+        }
+        return "shield.fill"
+    }
+
+    private func protocolBadgeText(_ server: ServerConfig) -> String {
+        let p = server.protocolType.uppercased()
+        if p == "HYSTERIA2" || p == "HY2" {
+            return "Hysteria 2"
+        } else if p == "HYSTERIA" {
+            return "Hysteria"
+        } else {
+            return server.security.isEmpty ? "VLESS" : "VLESS \(server.security.capitalized)"
         }
     }
 }

@@ -9,6 +9,7 @@ public final class SingBoxConfigBuilder {
         var outboundDict: [String: Any] = [:]
 
         let proto = server.protocolType.lowercased()
+        let serverName = (server.sni?.isEmpty ?? true) ? server.address : server.sni!
 
         if proto == "hysteria2" || proto == "hy2" {
             var hy2: [String: Any] = [
@@ -19,7 +20,7 @@ public final class SingBoxConfigBuilder {
                 "password": server.password ?? server.uuid,
                 "tls": [
                     "enabled": true,
-                    "server_name": server.sni ?? server.address,
+                    "server_name": serverName,
                     "insecure": server.insecure
                 ]
             ]
@@ -42,7 +43,7 @@ public final class SingBoxConfigBuilder {
                 "auth_str": server.password ?? server.uuid,
                 "tls": [
                     "enabled": true,
-                    "server_name": server.sni ?? server.address,
+                    "server_name": serverName,
                     "insecure": server.insecure
                 ]
             ]
@@ -66,7 +67,7 @@ public final class SingBoxConfigBuilder {
             if server.security.lowercased() == "reality" || server.security.lowercased() == "tls" {
                 var tlsDict: [String: Any] = [
                     "enabled": true,
-                    "server_name": server.sni ?? server.address,
+                    "server_name": serverName,
                     "utls": [
                         "enabled": true,
                         "fingerprint": server.fingerprint ?? "chrome"
